@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>今天吃什麼？</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 16px; }
+  .layout { display: flex; gap: 24px; flex-wrap: wrap; }
+  #wheel { max-width: 100%; }
+  .wheel-box { position: relative; text-align: center; }
+  .pointer { position: absolute; top: -4px; left: 50%; transform: translateX(-50%); font-size: 28px; }
+  ul { padding: 0; list-style: none; }
+  li { display: flex; justify-content: space-between; padding: 4px 0; }
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); align-items: center; justify-content: center; }
+  #modal.open { display: flex; }
+  .card { background: #fff; padding: 24px; border-radius: 8px; text-align: center; }
+  .card h2 { font-size: 40px; }
+</style>
+</head>
+<body>
+<h1>今天吃什麼？</h1>
+<div class="layout">
+  <div class="wheel-box">
+    <div class="pointer">▼</div>
+    <canvas id="wheel" width="400" height="400"></canvas><br>
+    <button id="spin">開始轉！</button>
+  </div>
+  <div>
+    <input id="newItem" placeholder="輸入餐點"><button id="add">新增</button>
+    <ul id="list"></ul>
+  </div>
+</div>
+<div id="modal"><div class="card">
+  <p>今天就吃</p><h2 id="result"></h2>
+  <button id="again">再轉一次</button> <button id="ok">就決定是你！</button>
+</div></div>
+<script>
+  let items = ['牛肉麵', '滷肉飯', '便當', '拉麵', '咖哩飯', '水餃', '炒飯', '麥當勞'];
+  const colors = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#f06292', '#a1887f'];
+  const canvas = document.getElementById('wheel');
+  const ctx = canvas.getContext('2d');
+  let rotation = 0, spinning = false;
+
+  function draw() {
+    const r = canvas.width / 2, n = items.length, seg = 2 * Math.PI / n;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    items.forEach((item, i) => {
+      const start = rotation + i * seg - Math.PI / 2;
+      ctx.beginPath(); ctx.moveTo(r, r);
+      ctx.arc(r, r, r - 4, start, start + seg); ctx.closePath();
+      ctx.fillStyle = colors[i % colors.length]; ctx.fill();
+      ctx.save(); ctx.translate(r, r); ctx.rotate(start + seg / 2);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'right';
+      ctx.fillText(item, r - 20, 6); ctx.restore();
+    });
+  }
+
+  function renderList() {
+    const ul = document.getElementById('list');
+    ul.innerHTML = '';
+    items.forEach((item, i) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      const del = document.createElement('button');
+      del.textContent = '刪除';
+      del.onclick = () => { items.splice(i, 1); renderList(); draw(); };
+      li.appendChild(del); ul.appendChild(li);
+    });
+  }
+
+  document.getElementById('add').onclick = () => {
+    const input = document.getElementById('newItem');
+    if (input.value.trim()) { items.push(input.value.trim()); input.value = ''; renderList(); draw(); }
+  };
+
+  function spin() {
+    if (spinning || items.length < 2) return;
+    spinning = true;
+    const seg = 2 * Math.PI / items.length;
+    const target = Math.floor(Math.random() * items.length);
+    const start = rotation;
+    const finalMod = 2 * Math.PI - (target + 0.5) * seg;
+    const end = start + 2 * Math.PI * 5 + ((finalMod - start % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const t0 = performance.now(), dur = 4000;
+    function frame(now) {
+      const p = Math.min((now - t0) / dur, 1);
+      rotation = start + (end - start) * (1 - Math.pow(1 - p, 3));
+      draw();
+      if (p < 1) requestAnimationFrame(frame);
+      else { spinning = false; document.getElementById('result').textContent = items[target]; document.getElementById('modal').classList.add('open'); }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  document.getElementById('spin').onclick = spin;
+  document.getElementById('again').onclick = () => { document.getElementById('modal').classList.remove('open'); spin(); };
+  document.getElementById('ok').onclick = () => document.getElementById('modal').classList.remove('open');
+  renderList(); draw();
+</script>
+</body>
+</html>

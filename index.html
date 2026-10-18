@@ -310,7 +310,7 @@
     const list = spinList || candidates().list;
     const r = size / 2, n = list.length;
     ctx.clearRect(0, 0, size, size);
-    if (n === 0) return;
+    if (n === 0 || size < 10) return; // 尺寸尚未計算時不繪製（避免 arc 半徑為負）
     const seg = 2 * Math.PI / n;
     const fontSize = Math.max(11, Math.min(18, size / 24, 220 / n));
     list.forEach((item, i) => {
@@ -526,8 +526,8 @@
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
   window.addEventListener('resize', resizeWheel);
 
-  render();
   resizeWheel();
+  render();
 </script>
 </body>
 </html>

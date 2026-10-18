@@ -5,98 +5,231 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>今天吃什麼？</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 16px; }
+  body { font-family: system-ui, sans-serif; max-width: 1080px; margin: 0 auto; padding: 16px; }
+  .tabs button.active { font-weight: bold; text-decoration: underline; }
   .layout { display: flex; gap: 24px; flex-wrap: wrap; }
-  #wheel { max-width: 100%; }
   .wheel-box { position: relative; text-align: center; }
+  #wheel { max-width: 100%; }
   .pointer { position: absolute; top: -4px; left: 50%; transform: translateX(-50%); font-size: 28px; }
+  .panel { flex: 1; min-width: 280px; }
   ul { padding: 0; list-style: none; }
-  li { display: flex; justify-content: space-between; padding: 4px 0; }
+  li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  li .name { flex: 1; }
+  li.paused .name { text-decoration: line-through; color: #999; }
+  .tag { font-size: 12px; background: #fde68a; padding: 0 6px; border-radius: 4px; }
+  .error { color: #c00; min-height: 1.2em; }
+  .bar { height: 12px; background: #64b5f6; }
   #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); align-items: center; justify-content: center; }
   #modal.open { display: flex; }
   .card { background: #fff; padding: 24px; border-radius: 8px; text-align: center; }
   .card h2 { font-size: 40px; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 16px; display: none; }
 </style>
 </head>
 <body>
 <h1>今天吃什麼？</h1>
+<div class="tabs" id="tabs"></div>
 <div class="layout">
   <div class="wheel-box">
     <div class="pointer">▼</div>
-    <canvas id="wheel" width="400" height="400"></canvas><br>
+    <canvas id="wheel" width="420" height="420"></canvas><br>
     <button id="spin">開始轉！</button>
+    <p id="hint"></p>
   </div>
-  <div>
-    <input id="newItem" placeholder="輸入餐點"><button id="add">新增</button>
+  <div class="panel">
+    <h3>選項管理</h3>
+    <input id="newItem" placeholder="輸入餐點，按 Enter 新增" maxlength="12"><button id="add">新增</button>
+    <div class="error" id="err"></div>
     <ul id="list"></ul>
+    <button id="reset">還原預設</button>
+    <h3>避開最近吃過</h3>
+    <label><input type="checkbox" id="avoidOn"> 啟用</label>
+    最近 <select id="avoidN"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select> 次
+    <h3>歷史紀錄</h3>
+    <div id="stats"></div>
+    <ul id="history"></ul>
+    <button id="clearHist">清除紀錄</button>
   </div>
 </div>
 <div id="modal"><div class="card">
   <p>今天就吃</p><h2 id="result"></h2>
-  <button id="again">再轉一次</button> <button id="ok">就決定是你！</button>
+  <button id="again">再轉一次</button> <button id="ok">就決定是你！</button> <button id="copy">複製結果</button>
 </div></div>
+<div id="toast"></div>
 <script>
-  let items = ['牛肉麵', '滷肉飯', '便當', '拉麵', '咖哩飯', '水餃', '炒飯', '麥當勞'];
-  const colors = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#f06292', '#a1887f'];
-  const canvas = document.getElementById('wheel');
-  const ctx = canvas.getContext('2d');
-  let rotation = 0, spinning = false;
+  const CATS = { breakfast: '早餐', lunch: '午晚餐', night: '宵夜', drink: '飲料' };
+  const DEFAULTS = {
+    breakfast: ['蛋餅', '飯糰', '蘿蔔糕', '漢堡', '三明治', '燒餅油條', '鐵板麵', '饅頭豆漿'],
+    lunch: ['牛肉麵', '滷肉飯', '便當', '拉麵', '咖哩飯', '水餃', '炒飯', '麥當勞', '義大利麵', '雞肉飯'],
+    night: ['鹹酥雞', '滷味', '泡麵', '清粥小菜', '麻辣燙', '炸物'],
+    drink: ['珍珠奶茶', '綠茶', '美式咖啡', '拿鐵', '多多綠', '冬瓜檸檬']
+  };
+  const EMOJI = { 蛋餅: '🌯', 飯糰: '🍙', 蘿蔔糕: '🥮', 漢堡: '🍔', 三明治: '🥪', 燒餅油條: '🥖', 鐵板麵: '🍝', 饅頭豆漿: '🥛',
+    牛肉麵: '🍜', 滷肉飯: '🍚', 便當: '🍱', 拉麵: '🍜', 咖哩飯: '🍛', 水餃: '🥟', 炒飯: '🍳', 麥當勞: '🍟', 義大利麵: '🍝', 雞肉飯: '🍗',
+    鹹酥雞: '🍗', 滷味: '🍢', 泡麵: '🍜', 清粥小菜: '🥣', 麻辣燙: '🌶️', 炸物: '🍤',
+    珍珠奶茶: '🧋', 綠茶: '🍵', 美式咖啡: '☕', 拿鐵: '☕', 多多綠: '🥤', 冬瓜檸檬: '🍋' };
+  const COLORS = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#f06292', '#a1887f'];
+  const STORE_KEY = 'what-to-eat-v2';
+  const $ = id => document.getElementById(id);
+
+  function defaultState() {
+    const lists = {};
+    for (const k in DEFAULTS) lists[k] = DEFAULTS[k].map(name => ({ name, paused: false }));
+    return { active: 'lunch', lists, avoid: { on: true, n: 3 }, history: [] };
+  }
+  let state;
+  try { state = JSON.parse(localStorage.getItem(STORE_KEY)) || defaultState(); } catch { state = defaultState(); }
+  const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} };
+
+  const emojiOf = name => EMOJI[name] || '🍽️';
+  const items = () => state.lists[state.active];
+
+  function recentNames() {
+    if (!state.avoid.on) return new Set();
+    return new Set(state.history.filter(h => h.cat === state.active).slice(0, state.avoid.n).map(h => h.name));
+  }
+
+  // 可參與轉盤的選項：未暫停，且（若啟用）不是最近吃過的
+  function candidates() {
+    const active = items().filter(i => !i.paused);
+    const recent = recentNames();
+    const filtered = active.filter(i => !recent.has(i.name));
+    if (filtered.length >= 2) return { list: filtered, relaxed: false };
+    return { list: active, relaxed: recent.size > 0 };
+  }
+
+  const canvas = $('wheel'), ctx = canvas.getContext('2d');
+  let rotation = 0, spinning = false, current = null;
 
   function draw() {
-    const r = canvas.width / 2, n = items.length, seg = 2 * Math.PI / n;
+    const { list } = candidates();
+    const r = canvas.width / 2, n = list.length;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    items.forEach((item, i) => {
+    if (n === 0) return;
+    const seg = 2 * Math.PI / n;
+    list.forEach((item, i) => {
       const start = rotation + i * seg - Math.PI / 2;
       ctx.beginPath(); ctx.moveTo(r, r);
       ctx.arc(r, r, r - 4, start, start + seg); ctx.closePath();
-      ctx.fillStyle = colors[i % colors.length]; ctx.fill();
+      ctx.fillStyle = COLORS[i % COLORS.length]; ctx.fill();
       ctx.save(); ctx.translate(r, r); ctx.rotate(start + seg / 2);
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'right';
-      ctx.fillText(item, r - 20, 6); ctx.restore();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(item.name, r - 20, 0); ctx.restore();
     });
   }
 
-  function renderList() {
-    const ul = document.getElementById('list');
-    ul.innerHTML = '';
-    items.forEach((item, i) => {
+  function render() {
+    $('tabs').innerHTML = '';
+    for (const k in CATS) {
+      const b = document.createElement('button');
+      b.textContent = CATS[k];
+      if (k === state.active) b.className = 'active';
+      b.onclick = () => { if (spinning) return; state.active = k; save(); render(); };
+      $('tabs').appendChild(b);
+    }
+
+    const recent = recentNames();
+    $('list').innerHTML = '';
+    items().forEach((item, i) => {
       const li = document.createElement('li');
-      li.textContent = item;
+      if (item.paused) li.className = 'paused';
+      li.innerHTML = `<span class="name">${emojiOf(item.name)} ${escapeHtml(item.name)}</span>` +
+        (recent.has(item.name) ? '<span class="tag">最近吃過</span>' : '');
+      const pause = document.createElement('button');
+      pause.textContent = item.paused ? '恢復' : '暫停';
+      pause.onclick = () => { item.paused = !item.paused; save(); render(); };
       const del = document.createElement('button');
       del.textContent = '刪除';
-      del.onclick = () => { items.splice(i, 1); renderList(); draw(); };
-      li.appendChild(del); ul.appendChild(li);
+      del.onclick = () => { items().splice(i, 1); save(); render(); };
+      li.append(pause, del);
+      $('list').appendChild(li);
     });
+
+    $('avoidOn').checked = state.avoid.on;
+    $('avoidN').value = state.avoid.n;
+
+    const { list, relaxed } = candidates();
+    $('spin').disabled = spinning || list.length < 2;
+    $('hint').textContent = list.length < 2 ? '至少需要 2 個選項' : relaxed ? '可用選項不足，本次暫時忽略「避開最近吃過」' : `${list.length} 個選項參與中`;
+
+    renderHistory();
+    draw();
   }
 
-  document.getElementById('add').onclick = () => {
-    const input = document.getElementById('newItem');
-    if (input.value.trim()) { items.push(input.value.trim()); input.value = ''; renderList(); draw(); }
-  };
+  function renderHistory() {
+    const counts = {};
+    state.history.forEach(h => counts[h.name] = (counts[h.name] || 0) + 1);
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const max = top.length ? top[0][1] : 1;
+    $('stats').innerHTML = top.length ? '<b>最常吃 Top 3</b>' + top.map(([name, c]) =>
+      `<div>${emojiOf(name)} ${escapeHtml(name)} × ${c}<div class="bar" style="width:${c / max * 100}%"></div></div>`).join('') : '還沒有紀錄';
+    $('history').innerHTML = state.history.map(h =>
+      `<li>${emojiOf(h.name)} ${escapeHtml(h.name)} <small>${CATS[h.cat]} · ${new Date(h.t).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></li>`).join('');
+  }
+
+  function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  function addItem() {
+    const name = $('newItem').value.trim();
+    if (!name) { $('err').textContent = '請輸入餐點名稱'; return; }
+    if (items().some(i => i.name === name)) { $('err').textContent = `「${name}」已經在清單裡了`; return; }
+    items().push({ name, paused: false });
+    $('newItem').value = ''; $('err').textContent = '';
+    save(); render();
+  }
 
   function spin() {
-    if (spinning || items.length < 2) return;
-    spinning = true;
-    const seg = 2 * Math.PI / items.length;
-    const target = Math.floor(Math.random() * items.length);
+    const { list } = candidates();
+    if (spinning || list.length < 2) return;
+    spinning = true; $('spin').disabled = true;
+    const seg = 2 * Math.PI / list.length;
+    const target = Math.floor(Math.random() * list.length);
+    const jitter = (Math.random() - 0.5) * seg * 0.7; // 不要每次都停在正中央
+    const TAU = 2 * Math.PI;
     const start = rotation;
-    const finalMod = 2 * Math.PI - (target + 0.5) * seg;
-    const end = start + 2 * Math.PI * 5 + ((finalMod - start % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    const t0 = performance.now(), dur = 4000;
+    const finalMod = ((TAU - (target + 0.5) * seg + jitter) % TAU + TAU) % TAU;
+    const end = start + TAU * 5 + ((finalMod - start % TAU) % TAU + TAU) % TAU;
+    const t0 = performance.now(), dur = 4000 + Math.random() * 1000;
     function frame(now) {
       const p = Math.min((now - t0) / dur, 1);
-      rotation = start + (end - start) * (1 - Math.pow(1 - p, 3));
+      rotation = start + (end - start) * (1 - Math.pow(1 - p, 4));
       draw();
-      if (p < 1) requestAnimationFrame(frame);
-      else { spinning = false; document.getElementById('result').textContent = items[target]; document.getElementById('modal').classList.add('open'); }
+      if (p < 1) return requestAnimationFrame(frame);
+      rotation %= TAU;
+      spinning = false; current = list[target].name;
+      $('result').textContent = `${emojiOf(current)} ${current}`;
+      $('modal').classList.add('open');
+      render();
     }
     requestAnimationFrame(frame);
   }
 
-  document.getElementById('spin').onclick = spin;
-  document.getElementById('again').onclick = () => { document.getElementById('modal').classList.remove('open'); spin(); };
-  document.getElementById('ok').onclick = () => document.getElementById('modal').classList.remove('open');
-  renderList(); draw();
+  function closeModal() { $('modal').classList.remove('open'); }
+  function toast(msg) { $('toast').textContent = msg; $('toast').style.display = 'block'; setTimeout(() => $('toast').style.display = 'none', 1800); }
+
+  $('spin').onclick = spin;
+  $('add').onclick = addItem;
+  $('newItem').onkeydown = e => { if (e.key === 'Enter') addItem(); };
+  $('reset').onclick = () => { state.lists[state.active] = DEFAULTS[state.active].map(name => ({ name, paused: false })); save(); render(); };
+  $('avoidOn').onchange = e => { state.avoid.on = e.target.checked; save(); render(); };
+  $('avoidN').onchange = e => { state.avoid.n = +e.target.value; save(); render(); };
+  $('clearHist').onclick = () => { state.history = []; save(); render(); };
+  $('again').onclick = () => { closeModal(); spin(); };
+  $('ok').onclick = () => {
+    state.history.unshift({ name: current, cat: state.active, t: Date.now() });
+    state.history = state.history.slice(0, 20);
+    save(); closeModal(); render();
+  };
+  $('copy').onclick = () => {
+    const text = `今天吃：${current} ${emojiOf(current)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast('已複製到剪貼簿'), () => toast(text));
+  };
+  $('modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !$('modal').classList.contains('open')) { e.preventDefault(); spin(); }
+  });
+  render();
 </script>
 </body>
 </html>
